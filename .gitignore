@@ -1,5 +1,5 @@
 target/
-project/
+project/target/
 *.iml
 *.ipr
 *.iws
