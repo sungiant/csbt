@@ -10,7 +10,7 @@
  * 
  *   A simple build tool for C# projects.
  *   - Supports projects and solutions defined in simple json files, much like the first version of .net core.
- *   - Supports compilation using mcs.
+ *   - Supports compilation using mcs or csc (where possible).
  *   - Supports text transform pre processing.
  *   - Supports dependencies using Nuget and/or local packages.
  */
@@ -242,7 +242,8 @@ object Program {
         val buildOrder: List[String] = solution.projects.map (_.output)
 
         val compiler: CompilerInterface = solution.config.compiler match {
-          case _ => Mcs // mcs support only right now
+          case "csc" => Csc
+          case _ => Mcs
         }
 
         buildOrder.foreach { o => 
@@ -724,3 +725,217 @@ object Generator {
     ).toMap
   }
 }
+
+
+/* Csc Compiler Wrapper                                                                                               */
+/**********************************************************************************************************************/
+
+/*
+ * $ csc /help
+ * Microsoft (R) Visual C# Compiler version 2.3.0.61801 (3722bb71)
+ * Copyright (C) Microsoft Corporation. All rights reserved.
+ * 
+ * 
+ *                               Visual C# Compiler Options
+
+ exe: a console executable, winexe: a Windows executable, library: a library, module: a module that can be added to another assembly, appcontainerexe: an Appcontainer executable, winmdobj: a Windows Runtime intermediate file that is consumed by WinMDExp
+ * 
+ *                         - OUTPUT FILES -
+ *  /out:<file>                   Specify output file name (default: base name of file with main class or first file)
+ *  /target:exe                   Build a console executable (default) (Short form: /t:exe)
+ *  /target:winexe                Build a Windows executable (Short form: /t:winexe)
+ *  /target:library               Build a library (Short form: /t:library)
+ *  /target:module                Build a module that can be added to another assembly (Short form: /t:module)
+ *  /target:appcontainerexe       Build an Appcontainer executable (Short form: /t:appcontainerexe)
+ *  /target:winmdobj              Build a Windows Runtime intermediate file that is consumed by WinMDExp (Short form: /t:winmdobj)
+ *  /doc:<file>                   XML Documentation file to generate
+ *  /refout:<file>                Reference assembly output to generate
+ *  /platform:<string>            Limit which platforms this code can run on: x86, Itanium, x64, arm, anycpu32bitpreferred, or anycpu. The default is anycpu.
+ * 
+ *                         - INPUT FILES -
+ *  /recurse:<wildcard>           Include all files in the current directory and subdirectories according to the wildcard specifications
+ *  /reference:<alias>=<file>     Reference metadata from the specified assembly
+ *                                file using the given alias (Short form: /r)
+ *  /reference:<file list>        Reference metadata from the specified assembly
+ *                                files (Short form: /r)
+ *  /addmodule:<file list>        Link the specified modules into this assembly
+ *  /link:<file list>             Embed metadata from the specified interop
+ *                                assembly files (Short form: /l)
+ *  /analyzer:<file list>         Run the analyzers from this assembly
+ *                                (Short form: /a)
+ *  /additionalfile:<file list>   Additional files that don't directly affect code
+ *                                generation but may be used by analyzers for producing
+ *                                errors or warnings.
+ *  /embed                        Embed all source files in the PDB.
+ *  /embed:<file list>            Embed specific files in the PDB
+ * 
+ *                         - RESOURCES -
+ *  /win32res:<file>              Specify a Win32 resource file (.res)
+ *  /win32icon:<file>             Use this icon for the output
+ *  /win32manifest:<file>         Specify a Win32 manifest file (.xml)
+ *  /nowin32manifest              Do not include the default Win32 manifest
+ *  /resource:<resinfo>           Embed the specified resource (Short form: /res)
+ *  /linkresource:<resinfo>       Link the specified resource to this assembly
+ *                                (Short form: /linkres) Where the resinfo format
+ *                                is <file>[,<string name>[,public|private]]
+ * 
+ *                         - CODE GENERATION -
+ *  /debug[+|-]                   Emit debugging information
+ *  /debug:{full|pdbonly|portable|embedded}
+ *                                Specify debugging type ('full' is default,
+ *                                'portable' is a cross-platform format,
+ *                                'embedded' is a cross-platform format embedded into
+ *                                the target .dll or .exe)
+ *  /optimize[+|-]                Enable optimizations (Short form: /o)
+ *  /deterministic                Produce a deterministic assembly
+ *                                (including module version GUID and timestamp)
+ *  /refonly                      Produce a reference assembly in place of the main output
+ *  /instrument:TestCoverage      Produce an assembly instrumented to collect
+ *                                coverage information
+ *  /sourcelink:<file>            Source link info to embed into PDB.
+ * 
+ *                         - ERRORS AND WARNINGS -
+ *  /warnaserror[+|-]             Report all warnings as errors
+ *  /warnaserror[+|-]:<warn list> Report specific warnings as errors
+ *  /warn:<n>                     Set warning level (0-4) (Short form: /w)
+ *  /nowarn:<warn list>           Disable specific warning messages
+ *  /ruleset:<file>               Specify a ruleset file that disables specific
+ *                                diagnostics.
+ *  /errorlog:<file>              Specify a file to log all compiler and analyzer
+ *                                diagnostics.
+ *  /reportanalyzer               Report additional analyzer information, such as
+ *                                execution time.
+ * 
+ *                         - LANGUAGE -
+ *  /checked[+|-]                 Generate overflow checks
+ *  /unsafe[+|-]                  Allow 'unsafe' code
+ *  /define:<symbol list>         Define conditional compilation symbol(s) (Short
+ *                                form: /d)
+ *  /langversion:<string>         Specify language version mode: ISO-1, ISO-2, 3,
+ *                                4, 5, 6, 7, 7.1, Default, or Latest
+ * 
+ *                         - SECURITY -
+ *  /delaysign[+|-]               Delay-sign the assembly using only the public
+ *                                portion of the strong name key
+ *  /publicsign[+|-]              Public-sign the assembly using only the public
+ *                                portion of the strong name key
+ *  /keyfile:<file>               Specify a strong name key file
+ *  /keycontainer:<string>        Specify a strong name key container
+ *  /highentropyva[+|-]           Enable high-entropy ASLR
+ * 
+ *                         - MISCELLANEOUS -
+ *  @<file>                       Read response file for more options
+ *  /help                         Display this usage message (Short form: /?)
+ *  /nologo                       Suppress compiler copyright message
+ *  /noconfig                     Do not auto include CSC.RSP file
+ *  /parallel[+|-]                Concurrent build.
+ *  /version                      Display the compiler version number and exit.
+ * 
+ *                         - ADVANCED -
+ *  /baseaddress:<address>        Base address for the library to be built
+ *  /checksumalgorithm:<alg>      Specify algorithm for calculating source file
+ *                                checksum stored in PDB. Supported values are:
+ *                                SHA1 (default) or SHA256.
+ *  /codepage:<n>                 Specify the codepage to use when opening source
+ *                                files
+ *  /utf8output                   Output compiler messages in UTF-8 encoding
+ *  /main:<type>                  Specify the type that contains the entry point
+ *                                (ignore all other possible entry points) (Short
+ *                                form: /m)
+ *  /fullpaths                    Compiler generates fully qualified paths
+ *  /filealign:<n>                Specify the alignment used for output file
+ *                                sections
+ *  /pathmap:<K1>=<V1>,<K2>=<V2>,...
+ *                                Specify a mapping for source path names output by
+ *                                the compiler.
+ *  /pdb:<file>                   Specify debug information file name (default:
+ *                                output file name with .pdb extension)
+ *  /errorendlocation             Output line and column of the end location of
+ *                                each error
+ *  /preferreduilang              Specify the preferred output language name.
+ *  /nostdlib[+|-]                Do not reference standard library (mscorlib.dll)
+ *  /subsystemversion:<string>    Specify subsystem version of this assembly
+ *  /lib:<file list>              Specify additional directories to search in for
+ *                                references
+ *  /errorreport:<string>         Specify how to handle internal compiler errors:
+ *                                prompt, send, queue, or none. The default is
+ *                                queue.
+ *  /appconfig:<file>             Specify an application configuration file
+ *                                containing assembly binding settings
+ *  /moduleassemblyname:<string>  Name of the assembly which this module will be
+ *                                a part of
+ *  /modulename:<string>          Specify the name of the source module
+ * 
+ * 
+ */
+
+object Csc extends Program.CompilerInterface {
+
+  private case class ResInfo (
+    file: String,
+    name: String,
+    access: String // public|private
+  )
+
+  private case class Args (
+    // output files
+    out                   : Option[String] = None,                        // /out:<file>                   Specify output file name (default: base name of file with main class or first file)
+    target                : Option[String] = None,                        // /target:<kind>                Build [exe]: a console executable, [winexe]: a Windows executable, [library]: a library, [module]: a module that can be added to another assembly, [appcontainerexe]: an Appcontainer executable, [winmdobj]: a Windows Runtime intermediate file that is consumed by WinMDExp
+    doc                   : Option[String] = None,                        // /doc:<file>                   XML Documentation file to generate
+    refout                : Option[String] = None,                        // /refout:<file>                Reference assembly output to generate
+    platform              : Option[String] = None,                        // /platform:<string>            Limit which platforms this code can run on: [x86], [Itanium], [x64], [arm], [anycpu32bitpreferred], or [anycpu]. The default is [anycpu].
+    // input files
+    recurse               : Option[List[String]] = None,                  // /recurse:<wildcard>           Include all files in the current directory and subdirectories according to the wildcard specifications
+    reference             : Option[List[String]] = None,
+    reference_alias       : Option[Map[String, String]] = None,
+    add_module            : Option[List[String]] = None,
+    link                  : Option[List[String]] = None,
+    analyzer              : Option[List[String]] = None,
+    additionalfile        : Option[List[String]] = None,
+    embed                 : Option[Unit] = None,
+    embed_specific        : Option[List[String]] = None,
+    // resources
+    win32res              : Option[String] = None,
+    win32icon             : Option[String] = None,
+    win32manifest         : Option[String] = None,
+    nowin32manifest       : Option[Boolean] = None,
+    resource              : Option[List[ResInfo]] = None,
+    linkresource          : Option[List[ResInfo]] = None,
+    // code generation
+    debug                 : Option[Boolean] = None,
+    debug_type            : Option[String] = None,                        // full|pdbonly|portable|embedded
+    optimize              : Option[Boolean] = None,
+    deterministic         : Option[Unit] = None,
+    refonly               : Option[Unit] = None,
+    instrument            : Option[Unit] = None,
+    sourcelink            : Option[List[String]] = None,
+    // errors and warnings
+    warnaserror           : Option[Boolean] = None,                       // Report all warnings as errors
+    warnaserror_specific  : Option[List[String]] = None,                  // Report specific warnings as errors
+    warn                  : Option[Int] = None,                           // Set warning level (0-4) (Short form: /w)
+    nowarn                : Option[List[String]] = None,                  // Disable specific warning messages 
+    ruleset               : Option[String] = None,                        // Specify a ruleset file that disables specific diagnostics.
+    errorlog              : Option[String] = None,                        // Specify a file to log all compiler and analyzer diagnostics.
+    reportanalyzer        : Option[Unit] = None                           // Report additional analyzer information, such as execution time.
+  )
+
+  def command (project: Model.Project): Program.Command = command { Args ()
+    .copy (target = Some (project.target))
+    .copy (out = Some ("bin/csc/" + project.output))
+    .copy (recurse = Some (project.sources))
+  }
+
+  private def command (args: Args): Program.Command = ??? /* Program.Command ("csc", (
+    // output files
+    args.out.map                  { x => Some (s"/out:$x") } ::
+    args.target.map               { x => Some (s"/target:$x") } ::
+    args.doc.map                  { x => Some (s"/doc:$x") } ::
+    args.refout.map               { x => Some (s"/refout:$x") } ::
+    args.platform.map             { x => Some (s"/platform:$x") } ::
+    // input files
+    args.recurse.map              { x => x.map (s => Some (s"/recurse:$s")) }.getOrElse (Nil) :::
+  
+    Nil).collect { case Some (x) => x })*/
+
+}
+
