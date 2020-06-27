@@ -1,7 +1,7 @@
 # csbt
 
-[![Build Status](https://travis-ci.org/sungiant/csbt.png?branch=master)][travis]
-[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)][license]
+[![Build Status](https://img.shields.io/travis/sungiant/csbt)][travis]
+[![License](https://img.shields.io/github/license/sungiant/csbt)][license]
 
 This repository contains the source for `csbt`, a super simple C# build tool.  Right now this project is essentially a proof of concept.
 
